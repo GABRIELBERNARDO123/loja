@@ -1,0 +1,464 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  ADMIN
+  CUSTOMER
+}
+
+enum TokenType {
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELED
+  REFUNDED
+  CHARGEBACK
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  IN_PROCESS
+  APPROVED
+  REJECTED
+  CANCELLED
+  REFUNDED
+  CHARGED_BACK
+  EXPIRED
+  FAILED
+}
+
+enum CouponType {
+  PERCENT
+  FIXED
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  REVOKED
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        RoleName @unique
+  description String?
+  users       User[]
+  createdAt   DateTime @default(now())
+
+  @@map("roles")
+}
+
+model User {
+  id                   String                 @id @default(cuid())
+  name                 String
+  email                String                 @unique
+  passwordHash         String
+  roleId               String
+  role                 Role                   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  emailVerifiedAt      DateTime?
+  isActive             Boolean                @default(true)
+  totpSecretEncrypted  String?
+  totpEnabled          Boolean                @default(false)
+  failedLoginAttempts  Int                    @default(0)
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  sessions             Session[]
+  tokens               VerificationToken[]
+  carts                Cart[]
+  orders               Order[]
+  entitlements         DownloadEntitlement[]
+  downloadLogs         DownloadLog[]
+  couponRedemptions    CouponRedemption[]
+  auditLogs            AuditLog[]             @relation("ActorAuditLogs")
+  idempotencyRecords   IdempotencyRecord[]
+
+  @@index([roleId])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mfaVerified Boolean  @default(false)
+  ipHash      String?
+  userAgent   String?
+  expiresAt   DateTime
+  lastSeenAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      TokenType
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, type])
+  @@index([expiresAt])
+  @@map("verification_tokens")
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?
+  imageUrl    String?
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+
+  @@index([isActive, sortOrder])
+  @@map("categories")
+}
+
+model Product {
+  id                 String          @id @default(cuid())
+  name               String
+  slug               String          @unique
+  shortDescription   String
+  description        String          @db.Text
+  priceCents         Int
+  compareAtCents     Int?
+  categoryId         String?
+  category           Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  coverImageUrl      String?
+  previewUrl         String?
+  fileFormat         String
+  compatibility      String?
+  isActive           Boolean         @default(true)
+  isFeatured         Boolean         @default(false)
+  sortOrder          Int             @default(0)
+  downloadLimit      Int             @default(10)
+  downloadExpiryDays Int             @default(365)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  files              ProductFile[]
+  cartItems          CartItem[]
+  orderItems         OrderItem[]
+  entitlements       DownloadEntitlement[]
+
+  @@index([isActive, isFeatured, sortOrder])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@map("products")
+}
+
+model ProductFile {
+  id           String                @id @default(cuid())
+  productId    String
+  product      Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  pathname     String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  sha256       String
+  createdAt    DateTime              @default(now())
+  entitlements DownloadEntitlement[]
+
+  @@index([productId])
+  @@map("product_files")
+}
+
+model Cart {
+  id             String     @id @default(cuid())
+  userId         String?
+  user           User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestTokenHash String?    @unique
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  items          CartItem[]
+
+  @@index([userId])
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([productId])
+  @@map("cart_items")
+}
+
+model Order {
+  id                String                 @id @default(cuid())
+  code              String                 @unique
+  userId            String
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status            OrderStatus            @default(PENDING)
+  subtotalCents     Int
+  discountCents     Int                    @default(0)
+  totalCents        Int
+  currency          String                 @default("BRL")
+  customerName      String
+  customerEmail     String
+  couponId          String?
+  coupon            Coupon?                @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  couponCode        String?
+  checkoutKey       String?                @unique
+  providerReference String?                @unique
+  paidAt            DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  items             OrderItem[]
+  payments          Payment[]
+  entitlements      DownloadEntitlement[]
+  events            PaymentEvent[]
+  redemptions       CouponRedemption[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([customerEmail])
+  @@map("orders")
+}
+
+model OrderItem {
+  id             String              @id @default(cuid())
+  orderId        String
+  order          Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product?            @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName    String
+  productSlug    String
+  fileFormat     String
+  unitPriceCents Int
+  quantity       Int
+  totalCents     Int
+  downloadLimit  Int                 @default(10)
+  expiryDays     Int                 @default(365)
+  createdAt      DateTime            @default(now())
+  entitlements   DownloadEntitlement[]
+
+  @@unique([orderId, productId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model Payment {
+  id                String        @id @default(cuid())
+  orderId           String
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          String        @default("MERCADO_PAGO")
+  providerPaymentId String        @unique
+  status            PaymentStatus @default(PENDING)
+  statusDetail      String?
+  amountCents       Int
+  currency          String        @default("BRL")
+  method            String        @default("pix")
+  qrCode            String?       @db.Text
+  qrCodeBase64       String?       @db.Text
+  ticketUrl         String?
+  expiresAt         DateTime?
+  approvedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([orderId])
+  @@index([status, createdAt])
+  @@map("payments")
+}
+
+model PaymentEvent {
+  id                String   @id @default(cuid())
+  provider          String   @default("MERCADO_PAGO")
+  dedupeKey         String   @unique
+  providerPaymentId String?
+  orderId           String?
+  order             Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  type              String
+  signatureValid    Boolean
+  payloadHash       String
+  result            String
+  createdAt         DateTime @default(now())
+
+  @@index([orderId])
+  @@map("payment_events")
+}
+
+model Coupon {
+  id               String             @id @default(cuid())
+  code             String             @unique
+  description      String?
+  type             CouponType
+  value            Int
+  minSubtotalCents Int                @default(0)
+  maxDiscountCents Int?
+  startsAt         DateTime?
+  endsAt           DateTime?
+  maxRedemptions   Int?
+  redemptionCount  Int                @default(0)
+  perUserLimit     Int                @default(1)
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  orders           Order[]
+  redemptions      CouponRedemption[]
+
+  @@index([isActive, startsAt, endsAt])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id        String   @id @default(cuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([couponId, userId])
+  @@map("coupon_redemptions")
+}
+
+model DownloadEntitlement {
+  id            String            @id @default(cuid())
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId       String
+  order         Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId   String
+  orderItem     OrderItem         @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productFileId String
+  productFile   ProductFile       @relation(fields: [productFileId], references: [id], onDelete: Restrict)
+  status        EntitlementStatus @default(ACTIVE)
+  downloadCount Int               @default(0)
+  maxDownloads  Int
+  expiresAt     DateTime
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  logs          DownloadLog[]
+
+  @@unique([orderItemId, productFileId])
+  @@index([userId, status])
+  @@index([orderId])
+  @@map("download_entitlements")
+}
+
+model DownloadLog {
+  id            String              @id @default(cuid())
+  entitlementId String
+  entitlement   DownloadEntitlement @relation(fields: [entitlementId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipHash        String?
+  userAgent     String?
+  success       Boolean
+  createdAt     DateTime            @default(now())
+
+  @@index([entitlementId, createdAt])
+  @@index([userId, createdAt])
+  @@map("download_logs")
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("ActorAuditLogs", fields: [actorId], references: [id], onDelete: SetNull)
+  actorEmail String?
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json?
+  ipHash     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+model StoreSettings {
+  id                    String   @id @default("default")
+  storeName             String   @default("Vértice Digital")
+  tagline               String   @default("Conhecimento que destrava resultados")
+  logoUrl               String?
+  supportEmail          String   @default("")
+  whatsapp              String   @default("")
+  instagram             String   @default("")
+  legalName             String   @default("")
+  document              String   @default("")
+  address               String   @default("")
+  city                  String   @default("")
+  state                 String   @default("")
+  zip                   String   @default("")
+  phone                 String   @default("")
+  primaryColor          String   @default("#f4315b")
+  accentColor           String   @default("#8b5cf6")
+  termsContent          String   @db.Text
+  privacyContent        String   @db.Text
+  refundContent         String   @db.Text
+  licenseContent        String   @db.Text
+  contactContent        String   @db.Text
+  defaultDownloadLimit  Int      @default(10)
+  defaultExpiryDays     Int      @default(365)
+  pixExpirationMinutes  Int      @default(30)
+  updatedAt             DateTime @updatedAt
+
+  @@map("store_settings")
+}
+
+model IdempotencyRecord {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  scope       String
+  requestHash String
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orderId     String?
+  response    Json?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+  @@map("idempotency_records")
+}
+
+model RateLimit {
+  key         String   @id
+  windowStart DateTime
+  count       Int      @default(0)
+  expiresAt   DateTime
+
+  @@index([expiresAt])
+  @@map("rate_limits")
+}
