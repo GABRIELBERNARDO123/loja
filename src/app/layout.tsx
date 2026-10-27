@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Manrope, Space_Grotesk } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { getStoreSettings } from "@/lib/settings";
+import { publicAppUrl } from "@/lib/env";
 import "./globals.css";
 
 const sans = Manrope({
@@ -34,7 +35,7 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
-    metadataBase: new URL(process.env.APP_URL ?? "http://localhost:3000"),
+    metadataBase: new URL(publicAppUrl()),
     title: {
       default: `${storeName} — Produtos digitais premium`,
       template: `%s — ${storeName}`,

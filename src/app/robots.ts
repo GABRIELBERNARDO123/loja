@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { appUrl } from "@/lib/env";
+import { publicAppUrl } from "@/lib/env";
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -10,7 +10,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ["/admin", "/api", "/conta", "/checkout", "/pedido", "/verificar-2fa", "/redefinir-senha", "/verificar-email"],
       },
     ],
-    sitemap: `${appUrl()}/sitemap.xml`,
-    host: appUrl(),
+    sitemap: `${publicAppUrl()}/sitemap.xml`,
+    host: publicAppUrl(),
   };
 }

@@ -1,11 +1,11 @@
 import type { MetadataRoute } from "next";
-import { appUrl } from "@/lib/env";
+import { publicAppUrl } from "@/lib/env";
 import { getProductSlugs, listCategories } from "@/lib/products";
 
 export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = appUrl();
+  const base = publicAppUrl();
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: base, changeFrequency: "weekly", priority: 1 },
     { url: `${base}/produtos`, changeFrequency: "daily", priority: 0.9 },

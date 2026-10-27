@@ -58,6 +58,23 @@ export function appUrl(): string {
   return getEnv().APP_URL.replace(/\/$/, "");
 }
 
+/**
+ * URL pública para SEO/metadados. Não exige os segredos de runtime, permitindo
+ * que o build da Vercel conclua antes de todas as variáveis sensíveis existirem.
+ */
+export function publicAppUrl(): string {
+  const fromEnv = process.env.APP_URL?.trim();
+  const vercelHost =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim() || process.env.VERCEL_URL?.trim();
+  const fallback = vercelHost ? `https://${vercelHost}` : "http://localhost:3000";
+  const value = fromEnv || fallback;
+  try {
+    return new URL(value).toString().replace(/\/$/, "");
+  } catch {
+    return "http://localhost:3000";
+  }
+}
+
 export function paymentsConfigured(): boolean {
   const env = getEnv();
   return Boolean(env.MERCADO_PAGO_ACCESS_TOKEN && env.MERCADO_PAGO_WEBHOOK_SECRET);
